@@ -3,14 +3,21 @@
 #include <ctime>
 #include <string>
 #include <cstring>
+#include <vector>
+#include <unistd.h>
+#include <stdexcept>
 #include "ssd/SSD_Defs.h"
 #include "exec/Execution_Parameter_Set.h"
 #include "exec/SSD_Device.h"
 #include "exec/Host_System.h"
 #include "utils/rapidxml/rapidxml.hpp"
+#include "utils/rapidxml/rapidxml_print.hpp"
+#include "utils/rapidxml/rapidxml_utils.hpp"
 #include "utils/DistributionTypes.h"
+#include "utils/CacheMappingLogger.h"
 
 using namespace std;
+using namespace rapidxml;
 
 
 void command_line_args(char* argv[], string& input_file_path, string& workload_file_path)
@@ -267,6 +274,9 @@ int main(int argc, char* argv[])
 	}
 
 	command_line_args(argv, ssd_config_file_path, workload_defs_file_path);
+	
+	// 로깅 시스템 초기화
+	Utils::CacheMappingLogger::GetInstance().Initialize("cache_mapping_log.txt");
 
 	Execution_Parameter_Set* exec_params = new Execution_Parameter_Set;
 	read_configuration_parameters(ssd_config_file_path, exec_params);

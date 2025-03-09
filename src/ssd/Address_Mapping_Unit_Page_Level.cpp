@@ -5,6 +5,8 @@
 #include "Address_Mapping_Unit_Page_Level.h"
 #include "Stats.h"
 #include "../utils/Logical_Address_Partitioning_Unit.h"
+#include "../utils/CacheMappingLogger.h"
+#include "../sim/Engine.h"
 
 namespace SSD_Components
 {
@@ -68,10 +70,19 @@ namespace SSD_Components
 		auto it = addressMap.find(key);
 		assert(it != addressMap.end());
 		assert(it->second->Status == CMTEntryStatus::VALID);
+		
+		// 이전 PPA 값을 저장하여 로그에 포함
+		PPA_type prev_ppa = it->second->PPA;
+		
 		it->second->PPA = ppa;
 		it->second->WrittenStateBitmap = pageWriteState;
 		it->second->Dirty = true;
 		it->second->Stream_id = streamID;
+		
+		// Dirty 이벤트 로깅
+		Utils::CacheMappingLogger::GetInstance().LogDirtyEntry<stream_id_type, LPA_type, PPA_type>(
+			Simulator->Time(), streamID, lpa, ppa, prev_ppa);
+			
 		DEBUG("Address mapping table update entry - Stream ID:" << streamID << ", LPA:" << lpa << ", PPA:" << ppa)
 	}
 
@@ -134,6 +145,11 @@ namespace SSD_Components
 		addressMap.erase(lruList.back().first);
 		lpa = UNIQUE_KEY_TO_LPN(lruList.back().second->Stream_id,lruList.back().first);
 		CMTSlotType evictedItem = *lruList.back().second;
+		
+		// Eviction 이벤트 로깅
+		Utils::CacheMappingLogger::GetInstance().LogEvictedEntry<stream_id_type, LPA_type, PPA_type>(
+			Simulator->Time(), evictedItem.Stream_id, lpa, evictedItem.PPA);
+		
 		delete lruList.back().second;
 		lruList.pop_back();
 	
@@ -302,6 +318,10 @@ namespace SSD_Components
 			Block_no_per_plane, Page_no_per_block, SectorsPerPage, PageSizeInByte, Overprovisioning_ratio, sharing_mode, fold_large_addresses)
 	{
 		_my_instance = this;
+		
+		// 로그 초기화
+		Utils::CacheMappingLogger::GetInstance().Initialize("cache_mapping_log.txt");
+		
 		domains = new AddressMappingDomain*[no_of_input_streams];
 
 		Write_transactions_for_overfull_planes = new std::set<NVM_Transaction_Flash_WR*>***[channel_count];
@@ -399,6 +419,9 @@ namespace SSD_Components
 			delete domains[i];
 		}
 		delete[] domains;
+
+		// CSV 형식으로 로그 내보내기 (옵션)
+		// Utils::CacheMappingLogger::GetInstance().ExportToCSV("cache_mapping_log.csv");
 	}
 
 	void Address_Mapping_Unit_Page_Level::Setup_triggers()
@@ -1241,15 +1264,15 @@ namespace SSD_Components
 				break;
 			case Flash_Plane_Allocation_Scheme_Type::CDWP:
 				read_address.ChannelID = domain->Channel_ids[(unsigned int)(lpa % domain->Channel_no)];
-				read_address.ChipID = domain->Chip_ids[(unsigned int)((lpa / (domain->Channel_no * domain->Die_no)) % domain->Chip_no)];
+				read_address.ChipID = domain->Chip_ids[(unsigned int)((lpa / (domain->Die_no * domain->Channel_no)) % domain->Chip_no)];
 				read_address.DieID = domain->Die_ids[(unsigned int)((lpa / domain->Channel_no) % domain->Die_no)];
-				read_address.PlaneID = domain->Plane_ids[(unsigned int)((lpa / (domain->Channel_no * domain->Die_no * domain->Chip_no)) % domain->Plane_no)];
+				read_address.PlaneID = domain->Plane_ids[(unsigned int)((lpa / (domain->Die_no * domain->Chip_no * domain->Channel_no)) % domain->Plane_no)];
 				break;
 			case Flash_Plane_Allocation_Scheme_Type::CDPW:
 				read_address.ChannelID = domain->Channel_ids[(unsigned int)(lpa % domain->Channel_no)];
-				read_address.ChipID = domain->Chip_ids[(unsigned int)((lpa / (domain->Channel_no * domain->Die_no * domain->Plane_no)) % domain->Chip_no)];
+				read_address.ChipID = domain->Chip_ids[(unsigned int)((lpa / (domain->Plane_no * domain->Die_no * domain->Channel_no)) % domain->Chip_no)];
 				read_address.DieID = domain->Die_ids[(unsigned int)((lpa / domain->Channel_no) % domain->Die_no)];
-				read_address.PlaneID = domain->Plane_ids[(unsigned int)((lpa / (domain->Channel_no * domain->Die_no)) % domain->Plane_no)];
+				read_address.PlaneID = domain->Plane_ids[(unsigned int)((lpa / (domain->Die_no * domain->Channel_no)) % domain->Plane_no)];
 				break;
 			case Flash_Plane_Allocation_Scheme_Type::CPWD:
 				read_address.ChannelID = domain->Channel_ids[(unsigned int)(lpa % domain->Channel_no)];
